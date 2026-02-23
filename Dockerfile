@@ -1,5 +1,5 @@
 ## Stage 1: Build libcoraza
-FROM --platform=$BUILDPLATFORM golang as go-builder
+FROM --platform=$BUILDPLATFORM golang AS go-builder
 
 RUN set -eux; \
     apt-get update -qq; \
@@ -27,7 +27,7 @@ RUN set -eux; \
     cp coraza/coraza.h /usr/local/include/coraza/
 
 ## Stage 2: Build mod_coraza
-FROM httpd:2.4 as apache-build
+FROM httpd:2.4 AS apache-build
 
 COPY --from=go-builder /usr/local/include/coraza /usr/local/include/coraza
 COPY --from=go-builder /usr/local/lib/libcoraza.a /usr/local/lib/
@@ -58,21 +58,43 @@ COPY --from=go-builder /usr/local/lib/libcoraza.so /usr/local/lib/
 
 RUN ldconfig -v
 
-# Create test page
-RUN echo "Hello from Coraza-Apache" > /usr/local/apache2/htdocs/index.html
-
-# Copy config
-COPY coraza.conf /usr/local/apache2/conf/extra/coraza.conf
-RUN echo "Include conf/extra/coraza.conf" >> /usr/local/apache2/conf/httpd.conf
-
-# Install test dependencies and verify config
+# Download OWASP CRS v4
 RUN apt-get update -qq && \
-    apt-get install -qq --no-install-recommends curl && \
-    httpd -t 2>&1 && \
-    echo "Config syntax OK"
+    apt-get install -qq --no-install-recommends curl ca-certificates && \
+    mkdir -p /etc/coraza/crs && \
+    CRS_VERSION="4.23.0" && \
+    curl -fSL "https://github.com/coreruleset/coreruleset/archive/refs/tags/v${CRS_VERSION}.tar.gz" \
+      -o /tmp/crs.tar.gz && \
+    tar -xzf /tmp/crs.tar.gz -C /tmp && \
+    cp /tmp/coreruleset-${CRS_VERSION}/crs-setup.conf.example /etc/coraza/crs/ && \
+    cp -r /tmp/coreruleset-${CRS_VERSION}/rules /etc/coraza/crs/ && \
+    rm -rf /tmp/crs.tar.gz /tmp/coreruleset-*
 
-# Copy test script
+# Create log directory and web root
+RUN mkdir -p /var/log/coraza && \
+    touch /var/log/coraza/audit.log && \
+    chmod 777 /var/log/coraza && \
+    chmod 666 /var/log/coraza/audit.log && \
+    echo "OK" > /usr/local/apache2/htdocs/index.html
+
+# Copy WAF rules config
+COPY t/coraza-waf.conf /etc/coraza/coraza-waf.conf
+
+# Apache config: load module, enable coraza with CRS, FallbackResource for test URLs
+RUN { \
+    echo 'LoadModule coraza_module modules/mod_coraza.so'; \
+    echo 'Coraza On'; \
+    echo 'CorazaRulesFile /etc/coraza/coraza-waf.conf'; \
+    echo 'FallbackResource /index.html'; \
+    } > /usr/local/apache2/conf/extra/coraza.conf && \
+    echo "Include conf/extra/coraza.conf" >> /usr/local/apache2/conf/httpd.conf
+
+# Verify config
+RUN httpd -t 2>&1 && echo "Config syntax OK"
+
+# Copy test scripts
+COPY t/test.sh /tmp/test.sh
 COPY t/run_tests.sh /tmp/run_tests.sh
-RUN chmod +x /tmp/run_tests.sh
+RUN chmod +x /tmp/test.sh /tmp/run_tests.sh
 
-CMD ["/tmp/run_tests.sh"]
+CMD ["sh", "-c", "httpd -k start && sleep 2 && /tmp/test.sh"]

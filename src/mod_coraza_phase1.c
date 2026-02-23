@@ -174,6 +174,12 @@ coraza_post_read_request(request_rec *r)
             /* No body to read, still finalize phase 2 */
             coraza_process_request_body(ctx->transaction);
             ctx->phase2_done = 1;
+
+            ret = coraza_process_intervention(ctx->transaction, r, 1);
+            if (ret > 0) {
+                ctx->intervention_triggered = 1;
+                return ret;
+            }
         }
     }
 
