@@ -88,7 +88,7 @@ RUN mkdir -p /var/log/coraza && \
     echo "OK" > /usr/local/apache2/htdocs/index.html
 
 # Copy WAF rules config
-COPY t/coraza-waf.conf /etc/coraza/coraza-waf.conf
+COPY coraza-waf.conf /etc/coraza/coraza-waf.conf
 
 # Apache config: load module, enable coraza with CRS, FallbackResource for test URLs
 RUN { \
