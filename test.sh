@@ -1,6 +1,16 @@
 #!/bin/sh
 
-URL="${1:-http://localhost:8080}"
+# Parse arguments
+URL=""
+MPM=""
+for arg in "$@"; do
+    case "$arg" in
+        --mpm=*) MPM="${arg#--mpm=}" ;;
+        *)       URL="$arg" ;;
+    esac
+done
+URL="${URL:-http://localhost:8080}"
+
 PASS=0
 FAIL=0
 
@@ -37,7 +47,19 @@ check_post() {
 
 echo "Coraza WAF test suite"
 echo "Target: $URL"
-echo ""
+
+# If --mpm is set, verify the server is running the expected MPM
+if [ -n "$MPM" ]; then
+    actual_mpm=$(curl -s "$URL/server-info?list" | grep -oE '>(event|prefork|worker)\.c<' | grep -oE '(event|prefork|worker)' | head -1)
+    if [ "$actual_mpm" = "$MPM" ]; then
+        printf "  PASS  MPM check: %s confirmed\n" "$MPM"
+        PASS=$((PASS + 1))
+    else
+        printf "  FAIL  MPM check: expected %s, got %s\n" "$MPM" "${actual_mpm:-empty}"
+        FAIL=$((FAIL + 1))
+    fi
+    echo ""
+fi
 
 echo "--- Normal requests (expect 200) ---"
 check "GET /"                          "$URL/"              200

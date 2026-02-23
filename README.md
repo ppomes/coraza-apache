@@ -38,6 +38,18 @@ docker run --rm -d --name coraza-apache-test -p 8888:80 coraza-apache-test
 docker stop coraza-apache-test
 ```
 
+To test with a specific MPM (default is event):
+
+```
+docker build --no-cache --build-arg MPM=prefork -t coraza-test-prefork .
+docker run --rm -d --name coraza-test-prefork -p 8889:80 coraza-test-prefork
+./test.sh http://localhost:8889 --mpm=prefork
+docker stop coraza-test-prefork
+```
+
+The `--mpm` flag verifies the server is running the expected MPM via the
+`server-info` endpoint.
+
 ## Configuration example
 
 All standard modsecurity `Sec*` directives are registered natively, so existing
