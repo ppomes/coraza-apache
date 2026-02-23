@@ -58,6 +58,16 @@ COPY --from=go-builder /usr/local/lib/libcoraza.so /usr/local/lib/
 
 RUN ldconfig -v
 
+# Switch MPM if requested (default: event)
+ARG MPM=event
+RUN set -eux; \
+    if [ "$MPM" != "event" ]; then \
+      sed -i \
+        -e 's/^LoadModule mpm_event_module/#LoadModule mpm_event_module/' \
+        -e "s/^#LoadModule mpm_${MPM}_module/LoadModule mpm_${MPM}_module/" \
+        /usr/local/apache2/conf/httpd.conf; \
+    fi
+
 # Download OWASP CRS v4
 RUN apt-get update -qq && \
     apt-get install -qq --no-install-recommends curl ca-certificates && \
@@ -83,9 +93,15 @@ COPY t/coraza-waf.conf /etc/coraza/coraza-waf.conf
 # Apache config: load module, enable coraza with CRS, FallbackResource for test URLs
 RUN { \
     echo 'LoadModule coraza_module modules/mod_coraza.so'; \
+    echo 'LoadModule info_module modules/mod_info.so'; \
     echo 'Coraza On'; \
     echo 'CorazaRulesFile /etc/coraza/coraza-waf.conf'; \
     echo 'FallbackResource /index.html'; \
+    echo '<Location "/server-info">'; \
+    echo '    SetHandler server-info'; \
+    echo '    Coraza Off'; \
+    echo '    Require all granted'; \
+    echo '</Location>'; \
     } > /usr/local/apache2/conf/extra/coraza.conf && \
     echo "Include conf/extra/coraza.conf" >> /usr/local/apache2/conf/httpd.conf
 
