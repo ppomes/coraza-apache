@@ -77,6 +77,40 @@ check_audit_log() {
     fi
 }
 
+check_body() {
+    desc="$1"
+    url="$2"
+    expected="$3"
+    body_pattern="$4"
+    negate="$5"
+
+    resp=$(curl -s -w "\n%{http_code}" "$url")
+    code=$(echo "$resp" | tail -1)
+    body=$(echo "$resp" | sed '$d')
+
+    status_ok=false
+    body_ok=false
+
+    [ "$code" = "$expected" ] && status_ok=true
+
+    if [ "$negate" = "!" ]; then
+        echo "$body" | grep -q "$body_pattern" || body_ok=true
+    else
+        echo "$body" | grep -q "$body_pattern" && body_ok=true
+    fi
+
+    if $status_ok && $body_ok; then
+        printf "  PASS  %s -> %s\n" "$desc" "$code"
+        PASS=$((PASS + 1))
+    else
+        reason=""
+        $status_ok || reason="status $code != $expected"
+        $body_ok || { [ -n "$reason" ] && reason="$reason, "; reason="${reason}body mismatch"; }
+        printf "  FAIL  %s -> %s (%s)\n" "$desc" "$code" "$reason"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
 clear_audit_log() {
     docker exec "$CONTAINER" truncate -s 0 /var/log/coraza/audit.log 2>/dev/null
 }
@@ -204,6 +238,29 @@ echo ""
 echo "--- Transaction ID tests ---"
 check "TxID: block works"             "$URL/txid-test?action=block"               403
 check "TxID: pass works"              "$URL/txid-test?action=safe"                200
+echo ""
+
+echo "--- Non-403 status code tests ---"
+check "401: deny blocks"                "$URL/deny-401?action=block"               401
+check "401: pass clean"                 "$URL/deny-401?action=safe"                200
+check "401: CRS SQLi still 403"         "$URL/deny-401?id=1%20OR%201=1"            403
+echo ""
+
+echo "--- Location rule isolation tests ---"
+check "Isolated-A: trigger=a blocks"    "$URL/isolated-a?trigger=a"                403
+check "Isolated-A: trigger=b passes"    "$URL/isolated-a?trigger=b"                200
+check "Isolated-A: clean passes"        "$URL/isolated-a?trigger=x"                200
+check "Isolated-B: trigger=b blocks"    "$URL/isolated-b?trigger=b"                403
+check "Isolated-B: trigger=a passes"    "$URL/isolated-b?trigger=a"                200
+check "Isolated-B: clean passes"        "$URL/isolated-b?trigger=x"                200
+echo ""
+
+echo "--- Custom error page tests ---"
+check_body "Error page: 403 body"       "$URL/errorpage-test?action=block"         403 "CORAZA_CUSTOM_ERROR_PAGE"
+check_body "Error page: 401 body"       "$URL/errorpage-401?action=block"          401 "CORAZA_CUSTOM_ERROR_PAGE"
+check_body "Error page: CRS block body" "$URL/?id=1%20OR%201=1"                    403 "CORAZA_CUSTOM_ERROR_PAGE"
+check_body "Error page: pass no error"  "$URL/errorpage-test?action=safe"          200 "CORAZA_CUSTOM_ERROR_PAGE" "!"
+check_body "Error page: clean 200 body" "$URL/"                                    200 "OK"
 echo ""
 
 # Audit log tests (require --container)

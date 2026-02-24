@@ -86,6 +86,7 @@ RUN mkdir -p /var/log/coraza && \
     chmod 777 /var/log/coraza && \
     chmod 666 /var/log/coraza/audit.log && \
     echo "OK" > /usr/local/apache2/htdocs/index.html && \
+    echo "CORAZA_CUSTOM_ERROR_PAGE" > /usr/local/apache2/htdocs/custom-error.html && \
     # Test directories for <Directory> and .htaccess tests
     mkdir -p /usr/local/apache2/htdocs/dir-protected && \
     echo "OK" > /usr/local/apache2/htdocs/dir-protected/index.html && \
@@ -127,6 +128,29 @@ RUN { \
     echo '<Directory "/usr/local/apache2/htdocs/dir-disabled">'; \
     echo '    Coraza Off'; \
     echo '</Directory>'; \
+    echo 'ErrorDocument 403 /custom-error.html'; \
+    echo 'ErrorDocument 401 /custom-error.html'; \
+    echo '<Location "/custom-error.html">'; \
+    echo '    Coraza Off'; \
+    echo '</Location>'; \
+    echo '# --- Non-403 status codes ---'; \
+    echo '<Location "/deny-401">'; \
+    echo '    SecRule ARGS:action "@streq block" "id:20401,phase:1,deny,status:401,log"'; \
+    echo '</Location>'; \
+    echo '# --- Location rule isolation ---'; \
+    echo '<Location "/isolated-a">'; \
+    echo '    SecRule ARGS:trigger "@streq a" "id:20501,phase:1,deny,status:403,log"'; \
+    echo '</Location>'; \
+    echo '<Location "/isolated-b">'; \
+    echo '    SecRule ARGS:trigger "@streq b" "id:20502,phase:1,deny,status:403,log"'; \
+    echo '</Location>'; \
+    echo '# --- Custom error page testing ---'; \
+    echo '<Location "/errorpage-test">'; \
+    echo '    SecRule ARGS:action "@streq block" "id:20601,phase:1,deny,status:403,log"'; \
+    echo '</Location>'; \
+    echo '<Location "/errorpage-401">'; \
+    echo '    SecRule ARGS:action "@streq block" "id:20602,phase:1,deny,status:401,log"'; \
+    echo '</Location>'; \
     echo '# --- Per-phase testing ---'; \
     echo '<Location "/phase1">'; \
     echo '    SecRule ARGS:action "@streq block403" "id:20001,phase:1,deny,status:403,log"'; \
