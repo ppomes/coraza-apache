@@ -85,6 +85,8 @@ RUN mkdir -p /var/log/coraza && \
     touch /var/log/coraza/audit.log && \
     chmod 777 /var/log/coraza && \
     chmod 666 /var/log/coraza/audit.log && \
+    mkdir -p /var/log/coraza/debug && \
+    chmod 777 /var/log/coraza/debug && \
     echo "OK" > /usr/local/apache2/htdocs/index.html && \
     echo "CORAZA_CUSTOM_ERROR_PAGE" > /usr/local/apache2/htdocs/custom-error.html && \
     # Test directories for <Directory> and .htaccess tests
@@ -188,6 +190,22 @@ RUN { \
     echo '    SecRule ARGS "@streq badarg2" "id:20202,phase:2,pass,setvar:tx.score=+1"'; \
     echo '    SecRule ARGS "@streq badarg3" "id:20203,phase:2,pass,setvar:tx.score=+1"'; \
     echo '    SecRule TX:SCORE "@ge 3" "id:20299,phase:2,deny,log,status:403"'; \
+    echo '</Location>'; \
+    echo '# --- Debug log per-location isolation ---'; \
+    echo '<Location "/debuglog-root">'; \
+    echo '    SecDebugLog /var/log/coraza/debug/root.log'; \
+    echo '    SecDebugLogLevel 9'; \
+    echo '    SecRule ARGS:what "@streq root" "id:30001,phase:1,pass,log"'; \
+    echo '</Location>'; \
+    echo '<Location "/debuglog-sub1">'; \
+    echo '    SecDebugLog /var/log/coraza/debug/sub1.log'; \
+    echo '    SecDebugLogLevel 9'; \
+    echo '    SecRule ARGS:what "@streq sub1" "id:30002,phase:1,pass,log"'; \
+    echo '</Location>'; \
+    echo '<Location "/debuglog-sub2">'; \
+    echo '    SecDebugLog /var/log/coraza/debug/sub2.log'; \
+    echo '    SecDebugLogLevel 9'; \
+    echo '    SecRule ARGS:what "@streq sub2" "id:30003,phase:1,pass,log"'; \
     echo '</Location>'; \
     echo '# --- Transaction ID ---'; \
     echo '<Location "/txid-test">'; \

@@ -125,6 +125,24 @@ clear_audit_log() {
     docker exec "$CONTAINER" truncate -s 0 /var/log/coraza/audit.log 2>/dev/null
 }
 
+check_debug_log() {
+    desc="$1"
+    file="$2"
+    pattern="$3"
+
+    if docker exec "$CONTAINER" grep -q "$pattern" "$file" 2>/dev/null; then
+        printf "  PASS  %s\n" "$desc"
+        PASS=$((PASS + 1))
+    else
+        printf "  FAIL  %s (pattern '%s' not in %s)\n" "$desc" "$pattern" "$file"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+clear_debug_logs() {
+    docker exec "$CONTAINER" sh -c 'rm -f /var/log/coraza/debug/*.log' 2>/dev/null
+}
+
 echo "Coraza WAF test suite"
 echo "Target: $URL"
 
@@ -317,9 +335,21 @@ if [ -n "$CONTAINER" ]; then
     check_audit_log "TxID: ID in audit log"    "TESTID-APACHE-001"
     check_audit_log "TxID: URI in audit log"   "txid-test"
     echo ""
+
+    echo "--- Debug log per-location isolation tests ---"
+    clear_debug_logs
+    curl -s -o /dev/null "$URL/debuglog-root?what=root"
+    curl -s -o /dev/null "$URL/debuglog-sub1?what=sub1"
+    curl -s -o /dev/null "$URL/debuglog-sub2?what=sub2"
+    sleep 1
+    check_debug_log "DebugLog: root.log written" "/var/log/coraza/debug/root.log" "30001"
+    check_debug_log "DebugLog: sub1.log written" "/var/log/coraza/debug/sub1.log" "30002"
+    check_debug_log "DebugLog: sub2.log written" "/var/log/coraza/debug/sub2.log" "30003"
+    echo ""
 else
     echo "--- Audit log tests (skipped: use --container=NAME) ---"
     echo "--- Transaction ID audit log tests (skipped: use --container=NAME) ---"
+    echo "--- Debug log per-location isolation tests (skipped: use --container=NAME) ---"
     echo ""
 fi
 
