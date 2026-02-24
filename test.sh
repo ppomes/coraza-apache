@@ -31,13 +31,14 @@ check() {
     fi
 }
 
-check_post() {
+check_method() {
     desc="$1"
-    url="$2"
-    body="$3"
-    expected="$4"
+    method="$2"
+    url="$3"
+    body="$4"
+    expected="$5"
 
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -d "$body" "$url")
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X "$method" -d "$body" "$url")
     if [ "$code" = "$expected" ]; then
         printf "  PASS  %s -> %s\n" "$desc" "$code"
         PASS=$((PASS + 1))
@@ -47,14 +48,15 @@ check_post() {
     fi
 }
 
-check_post_large() {
+check_method_large() {
     desc="$1"
-    url="$2"
-    size="$3"
-    expected="$4"
+    method="$2"
+    url="$3"
+    size="$4"
+    expected="$5"
 
     body=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c "$size")
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -d "$body" "$url")
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X "$method" -d "$body" "$url")
     if [ "$code" = "$expected" ]; then
         printf "  PASS  %s -> %s\n" "$desc" "$code"
         PASS=$((PASS + 1))
@@ -62,6 +64,14 @@ check_post_large() {
         printf "  FAIL  %s -> %s (expected %s)\n" "$desc" "$code" "$expected"
         FAIL=$((FAIL + 1))
     fi
+}
+
+check_post() {
+    check_method "$1" "POST" "$2" "$3" "$4"
+}
+
+check_post_large() {
+    check_method_large "$1" "POST" "$2" "$3" "$4"
 }
 
 check_audit_log() {
@@ -179,6 +189,28 @@ echo ""
 echo "--- POST RCE (expect 403) ---"
 check_post "POST RCE: shell cmd"      "$URL/api" "cmd=;cat /etc/passwd"          403
 check_post "POST RCE: pipe cmd"       "$URL/api" "cmd=|ls -la"                   403
+echo ""
+
+echo "--- PUT body tests (clean=405: WAF passes, Apache rejects method) ---"
+check_method "PUT normal form"              "PUT" "$URL/api" "name=john&age=30"              405
+check_method "PUT SQLi: OR 1=1"             "PUT" "$URL/api" "id=1 OR 1=1"                  403
+check_method "PUT XSS: script tag"          "PUT" "$URL/api" "q=<script>alert(1)</script>"   403
+check_method "PUT RCE: shell cmd"           "PUT" "$URL/api" "cmd=;cat /etc/passwd"          403
+check_method "PUT Phase 2: deny body"       "PUT" "$URL/phase2" "PHASE2ATTACK"               403
+check_method "PUT Phase 2: pass clean"      "PUT" "$URL/phase2" "cleandata"                  405
+check_method_large "PUT body limit reject"  "PUT" "$URL/bodylimit-reject/" 200               413
+check_method "PUT body limit partial"       "PUT" "$URL/bodylimit-partial/" "id=1 OR 1=1"    403
+echo ""
+
+echo "--- DELETE body tests (clean=405: WAF passes, Apache rejects method) ---"
+check_method "DELETE normal form"           "DELETE" "$URL/api" "name=john&age=30"            405
+check_method "DELETE SQLi: OR 1=1"          "DELETE" "$URL/api" "id=1 OR 1=1"                403
+check_method "DELETE XSS: script tag"       "DELETE" "$URL/api" "q=<script>alert(1)</script>" 403
+check_method "DELETE RCE: shell cmd"        "DELETE" "$URL/api" "cmd=;cat /etc/passwd"        403
+check_method "DELETE Phase 2: deny body"    "DELETE" "$URL/phase2" "PHASE2ATTACK"             403
+check_method "DELETE Phase 2: pass clean"   "DELETE" "$URL/phase2" "cleandata"                405
+check_method_large "DELETE body limit reject" "DELETE" "$URL/bodylimit-reject/" 200           413
+check_method "DELETE body limit partial"    "DELETE" "$URL/bodylimit-partial/" "id=1 OR 1=1"  403
 echo ""
 
 echo "--- <Directory> tests ---"
