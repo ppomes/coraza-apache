@@ -256,6 +256,23 @@ RUN { \
     echo '    SecRule ARGS:what "@streq sub4" "id:31005,phase:1,pass,log"'; \
     echo '    SecRule ARGS:what "@streq sub4withE" "id:31006,phase:1,pass,log,ctl:auditLogParts=+E"'; \
     echo '</Location>'; \
+    echo '# --- Response phase testing (phases 3+4) ---'; \
+    echo '<Location "/phase3">'; \
+    echo '    SecRule RESPONSE_HEADERS:Content-Type "@contains text/html" "id:20003,phase:3,deny,status:403,log"'; \
+    echo '</Location>'; \
+    echo '<Location "/phase3-pass">'; \
+    echo '    SecRule RESPONSE_HEADERS:X-No-Such "@streq yes" "id:20005,phase:3,deny,status:403,log"'; \
+    echo '</Location>'; \
+    echo '<Location "/phase4">'; \
+    echo '    SecResponseBodyAccess On'; \
+    echo '    SecResponseBodyMimeType text/html text/plain'; \
+    echo '    SecRule RESPONSE_BODY "@contains OK" "id:20004,phase:4,deny,status:403,log"'; \
+    echo '</Location>'; \
+    echo '<Location "/phase4-pass">'; \
+    echo '    SecResponseBodyAccess On'; \
+    echo '    SecResponseBodyMimeType text/html text/plain'; \
+    echo '    SecRule RESPONSE_BODY "@contains NOTINRESPONSE" "id:20006,phase:4,deny,status:403,log"'; \
+    echo '</Location>'; \
     echo '# --- Transaction ID ---'; \
     echo '<Location "/txid-test">'; \
     echo '    CorazaTransactionId "TESTID-APACHE-001"'; \
