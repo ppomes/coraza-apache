@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <apr_thread_mutex.h>
 
 /* Forward declarations */
 static void coraza_register_hooks(apr_pool_t *p);
@@ -33,6 +34,65 @@ static const char *cmd_sec_directive(cmd_parms *cmd, void *dcfg, const char *arg
  * use a static array (safe: config parsing is single-threaded in parent).
  */
 static apr_array_header_t *g_tracked_dir_confs = NULL;
+static apr_array_header_t *g_config_dir_confs = NULL; /* frozen after child_init */
+static apr_thread_mutex_t *g_waf_build_mutex = NULL;
+
+/*
+ * WAF cache: content-based hash → WAF handle.
+ * Linear array — no slot collisions, bounded by unique rule sets (~30).
+ * Hash is computed from rule string CONTENT, not pointer values,
+ * so .htaccess (per-request pool) and Location merges produce stable hashes.
+ * Protected by g_waf_build_mutex.
+ */
+#define WAF_CACHE_MAX 64
+
+typedef struct {
+    unsigned long hash;
+    int           rules_nelts;
+    coraza_waf_t  waf;
+} waf_cache_entry_t;
+
+static waf_cache_entry_t g_waf_cache[WAF_CACHE_MAX];
+static int g_waf_cache_count = 0;
+
+static unsigned long
+rules_hash(apr_array_header_t *rules)
+{
+    coraza_rule_entry_t *entries = (coraza_rule_entry_t *)rules->elts;
+    unsigned long h = 5381;
+    int i;
+    for (i = 0; i < rules->nelts; i++) {
+        const char *s = entries[i].value;
+        h = h * 33 + entries[i].type;
+        while (*s) {
+            h = h * 33 + (unsigned char)*s++;
+        }
+    }
+    return h;
+}
+
+static coraza_waf_t
+waf_cache_find(unsigned long hash, int nelts)
+{
+    int i;
+    for (i = 0; i < g_waf_cache_count; i++) {
+        if (g_waf_cache[i].hash == hash && g_waf_cache[i].rules_nelts == nelts) {
+            return g_waf_cache[i].waf;
+        }
+    }
+    return 0;
+}
+
+static void
+waf_cache_add(unsigned long hash, int nelts, coraza_waf_t waf)
+{
+    if (g_waf_cache_count < WAF_CACHE_MAX) {
+        g_waf_cache[g_waf_cache_count].hash = hash;
+        g_waf_cache[g_waf_cache_count].rules_nelts = nelts;
+        g_waf_cache[g_waf_cache_count].waf = waf;
+        g_waf_cache_count++;
+    }
+}
 
 
 /* ------------------------------------------------------------------ */
@@ -117,12 +177,42 @@ coraza_create_ctx(request_rec *r)
     scf = ap_get_module_config(r->server->module_config, &coraza_module);
 
     /*
-     * Lazy WAF building: if this dir_conf has rules but no WAF yet
-     * (e.g. the server-level dir_conf that didn't go through merge,
-     * or a dir_conf whose WAF wasn't built in child_init), build it now.
+     * Lazy WAF building: if this dir_conf has rules but no WAF yet,
+     * try merge_child cache, then WAF hash cache, then build new.
      */
     if (dcf->waf == 0 && dcf->has_rules && dcf->rules->nelts > 0) {
-        dcf->waf = coraza_build_waf(dcf->rules, r->server);
+        apr_thread_mutex_lock(g_waf_build_mutex);
+
+        /* Strategy 1: re-check merge_child for concurrent build race */
+        if (dcf->waf == 0 && dcf->merge_child != NULL) {
+            dcf->waf = ((coraza_dir_conf_t *)dcf->merge_child)->waf;
+        }
+
+        /* Strategy 2: WAF content-hash cache lookup */
+        if (dcf->waf == 0) {
+            unsigned long h = rules_hash(dcf->rules);
+            coraza_waf_t cached = waf_cache_find(h, dcf->rules->nelts);
+            if (cached != 0) {
+                dcf->waf = cached;
+                if (dcf->merge_child != NULL) {
+                    ((coraza_dir_conf_t *)dcf->merge_child)->waf = dcf->waf;
+                }
+            }
+        }
+
+        /* Strategy 3: build new WAF and cache it */
+        if (dcf->waf == 0) {
+            unsigned long h = rules_hash(dcf->rules);
+            dcf->waf = coraza_build_waf(dcf->rules, r->server);
+            if (dcf->waf != 0) {
+                waf_cache_add(h, dcf->rules->nelts, dcf->waf);
+            }
+            if (dcf->merge_child != NULL) {
+                ((coraza_dir_conf_t *)dcf->merge_child)->waf = dcf->waf;
+            }
+        }
+
+        apr_thread_mutex_unlock(g_waf_build_mutex);
     }
 
     /* Use directory WAF if available, otherwise fall back to server WAF */
@@ -378,15 +468,20 @@ coraza_merge_dir_conf(apr_pool_t *p, void *parent, void *child)
             apr_array_cat(merged->rules, pconf->rules);
             apr_array_cat(merged->rules, cconf->rules);
             merged->has_rules = 1;
+            /* Propagate cached WAF from stable child; set back-pointer for caching */
+            merged->waf = cconf->waf;
+            merged->merge_child = cconf;
         } else {
-            /* Only parent has rules: share pointer */
+            /* Only parent has rules: propagate parent's WAF */
             merged->rules = pconf->rules;
             merged->has_rules = pconf->has_rules;
+            merged->waf = pconf->waf;
         }
     } else if (cconf->rules->nelts > 0) {
-        /* Only child has rules */
+        /* Only child has rules: propagate child's WAF */
         merged->rules = cconf->rules;
         merged->has_rules = cconf->has_rules;
+        merged->waf = cconf->waf;
     } else {
         /* Neither has rules */
         merged->rules = apr_array_make(p, 4, sizeof(coraza_rule_entry_t));
@@ -508,6 +603,9 @@ coraza_child_init(apr_pool_t *p, server_rec *s)
         return;
     }
 
+    /* Create mutex for lazy WAF building (event MPM thread safety) */
+    apr_thread_mutex_create(&g_waf_build_mutex, APR_THREAD_MUTEX_DEFAULT, p);
+
     /* Step 2: build server WAFs for all server_recs */
     server_rec *sv;
     for (sv = s; sv; sv = sv->next) {
@@ -532,6 +630,13 @@ coraza_child_init(apr_pool_t *p, server_rec *s)
             ap_log_error(APLOG_MARK, APLOG_ERR, 0, sv,
                          "coraza: failed to build server WAF in child");
             continue;
+        }
+
+        /* Share WAF with server base dir_conf so request-time merges inherit it */
+        coraza_dir_conf_t *base_dcf = ap_get_module_config(sv->lookup_defaults,
+                                                            &coraza_module);
+        if (base_dcf != NULL && base_dcf->waf == 0) {
+            base_dcf->waf = scf->waf;
         }
 
         ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, sv,
@@ -577,6 +682,11 @@ coraza_child_init(apr_pool_t *p, server_rec *s)
         }
     }
 
+    /* Freeze config-time dir_confs for child_exit cleanup.
+     * Stop accumulating request-time merges (they'd be dangling pointers). */
+    g_config_dir_confs = g_tracked_dir_confs;
+    g_tracked_dir_confs = NULL;
+
     ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, s,
                  "coraza: WAFs initialized in child process %d",
                  (int)getpid());
@@ -599,12 +709,12 @@ coraza_child_exit(void *data)
     coraza_server_conf_t *scf;
     int i;
 
-    /* Free dir_conf WAFs */
-    if (g_tracked_dir_confs != NULL) {
+    /* Free dir_conf WAFs (config-time only — frozen in child_init) */
+    if (g_config_dir_confs != NULL) {
         coraza_dir_conf_t **dir_confs;
-        dir_confs = (coraza_dir_conf_t **)g_tracked_dir_confs->elts;
+        dir_confs = (coraza_dir_conf_t **)g_config_dir_confs->elts;
 
-        for (i = 0; i < g_tracked_dir_confs->nelts; i++) {
+        for (i = 0; i < g_config_dir_confs->nelts; i++) {
             coraza_dir_conf_t *dcf = dir_confs[i];
 
             if (dcf->waf == 0) {

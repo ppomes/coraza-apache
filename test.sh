@@ -140,7 +140,7 @@ check_debug_log() {
 }
 
 clear_debug_logs() {
-    docker exec "$CONTAINER" sh -c 'rm -f /var/log/coraza/debug/*.log' 2>/dev/null
+    docker exec "$CONTAINER" sh -c 'for f in /var/log/coraza/debug/*.log; do [ -f "$f" ] && truncate -s 0 "$f"; done' 2>/dev/null
 }
 
 check_perloc_audit_log() {
@@ -158,7 +158,7 @@ check_perloc_audit_log() {
 }
 
 clear_perloc_audit_logs() {
-    docker exec "$CONTAINER" sh -c 'rm -f /var/log/coraza/audit/*.log' 2>/dev/null
+    docker exec "$CONTAINER" sh -c 'for f in /var/log/coraza/audit/*.log; do [ -f "$f" ] && truncate -s 0 "$f"; done' 2>/dev/null
 }
 
 echo "Coraza WAF test suite"

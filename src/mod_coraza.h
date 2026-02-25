@@ -58,6 +58,7 @@ typedef struct {
     apr_array_header_t *rules;           /* of coraza_rule_entry_t */
     const char         *transaction_id;
     coraza_waf_t        waf;             /* built in child_init */
+    void               *merge_child;     /* stable child dir_conf for WAF caching */
 } coraza_dir_conf_t;
 
 
