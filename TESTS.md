@@ -1,6 +1,6 @@
 # Test Coverage
 
-The integration test suite (`test.sh`) runs **121 tests** against a Docker
+The integration test suite (`test.sh`) runs **124 tests** against a Docker
 container with CRS v4 and multiple Location/Directory/.htaccess/VirtualHost configurations.
 
 ## Running
@@ -10,10 +10,10 @@ container with CRS v4 and multiple Location/Directory/.htaccess/VirtualHost conf
 docker build --no-cache -t coraza-apache-test .
 docker run --rm -d --name coraza-apache-test -p 8888:80 coraza-apache-test
 
-# Full suite (121 tests, event MPM)
+# Full suite (124 tests, event MPM)
 ./test.sh http://localhost:8888 --mpm=event --container=coraza-apache-test
 
-# Minimal (101 tests, no audit/debug log checks, no MPM verification)
+# Minimal (104 tests, no audit/debug log checks, no MPM verification)
 ./test.sh http://localhost:8888
 
 # Prefork MPM
@@ -61,15 +61,14 @@ Clean requests return 405 (WAF passes, Apache rejects method).
 | `.htaccess` | 4 | Custom rule block/pass, `Coraza Off` bypass |
 | CRS inheritance | 3 | Server-level CRS rules apply in Directory/.htaccess |
 
-### Per-Phase Processing (4 tests)
+### Per-Phase Processing (8 tests)
 
 | Phase | Hook | Tests |
 |-------|------|-------|
 | Phase 1 | fixups | 2 (ARGS match: deny + pass) |
 | Phase 2 | fixups | 2 (REQUEST_BODY match: deny + pass) |
-
-Phases 3-4 (response headers/body) are not directly testable due to Coraza
-engine limitations with RESPONSE_HEADERS/RESPONSE_BODY variables.
+| Phase 3 | output filter | 2 (RESPONSE_HEADERS:Content-Type match: deny + pass) |
+| Phase 4 | output filter | 2 (RESPONSE_BODY match: deny + pass) |
 
 ### Config Merging (6 tests)
 
@@ -150,7 +149,7 @@ Locations (`/auditlog-sub1/sub2`). Verifies:
 The Docker image configures:
 
 - **Server level**: `Coraza On`, CRS v4 via `CorazaRulesFile`, `ErrorDocument 403/401`
-- **27 Location blocks**: per-phase rules, config merging, body limits, scoring,
+- **29 Location blocks**: per-phase rules (1-4), config merging, body limits, scoring,
   audit/debug log isolation, rule isolation, error pages, transaction ID, status codes
 - **2 VirtualHost blocks**: `vhost-off.test` (Coraza Off), `vhost-custom.test` (custom rule, no CRS)
 - **2 Directory blocks**: custom rule + `Coraza Off`
@@ -159,8 +158,6 @@ The Docker image configures:
 
 ## What's Not Covered
 
-- Response header/body inspection (`RESPONSE_HEADERS`, `RESPONSE_BODY` SecRule
-  variables don't work — Coraza engine limitation)
 - Redirect interventions (`intervention->url` not available in libcoraza)
 - Concurrent request stress testing
 - Graceful restart / config reload

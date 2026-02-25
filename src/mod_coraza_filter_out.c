@@ -62,6 +62,17 @@ coraza_output_filter(ap_filter_t *f, apr_bucket_brigade *bb)
                                        telts[i].val ? (int)strlen(telts[i].val) : 0);
         }
 
+        /* Content-Type is stored in r->content_type, not in headers_out.
+         * Apache's core output filter adds it when serializing the response,
+         * but our filter runs before that, so we must add it explicitly. */
+        if (r->content_type != NULL) {
+            coraza_add_response_header(ctx->transaction,
+                                       "Content-Type",
+                                       (int)strlen("Content-Type"),
+                                       (char *)r->content_type,
+                                       (int)strlen(r->content_type));
+        }
+
         /* Also send err_headers_out (headers sent even on error) */
         tarr = apr_table_elts(r->err_headers_out);
         telts = (const apr_table_entry_t *)tarr->elts;
@@ -85,11 +96,13 @@ coraza_output_filter(ap_filter_t *f, apr_bucket_brigade *bb)
 
         ret = coraza_process_intervention(ctx->transaction, r, 0);
         if (ret > 0) {
+            /* Phase 3 intervention: no data sent yet, generate clean error */
             ctx->intervention_triggered = 1;
             ap_remove_output_filter(f);
             apr_brigade_cleanup(bb);
             r->status = ret;
-            return APR_EGENERAL;
+            ap_die(ret, r);
+            return AP_FILTER_ERROR;
         }
 
         /* Begin header delay — skip for HEAD (no body), subrequests (internal),
@@ -137,8 +150,13 @@ coraza_output_filter(ap_filter_t *f, apr_bucket_brigade *bb)
                 ctx->intervention_triggered = 1;
                 ap_remove_output_filter(f);
                 if (ctx->headers_delayed) {
+                    /* Nothing sent yet — generate clean error response */
                     ctx->headers_delayed = 0;
                     apr_brigade_cleanup(ctx->pending_brigade);
+                    apr_brigade_cleanup(bb);
+                    r->status = ret;
+                    ap_die(ret, r);
+                    return AP_FILTER_ERROR;
                 }
                 apr_brigade_cleanup(bb);
                 r->status = ret;
@@ -157,8 +175,13 @@ coraza_output_filter(ap_filter_t *f, apr_bucket_brigade *bb)
             ctx->phase4_done = 1;
             ap_remove_output_filter(f);
             if (ctx->headers_delayed) {
+                /* Nothing sent yet — generate clean error response */
                 ctx->headers_delayed = 0;
                 apr_brigade_cleanup(ctx->pending_brigade);
+                apr_brigade_cleanup(bb);
+                r->status = ret;
+                ap_die(ret, r);
+                return AP_FILTER_ERROR;
             }
             apr_brigade_cleanup(bb);
             r->status = ret;

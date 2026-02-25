@@ -293,6 +293,13 @@ check_post "Phase 2: deny on body"    "$URL/phase2" "PHASE2ATTACK"              
 check_post "Phase 2: pass clean"      "$URL/phase2" "cleandata"                   200
 echo ""
 
+echo "--- Response phase tests (3+4) ---"
+check "Phase 3: deny on Content-Type"       "$URL/phase3"                          403
+check "Phase 3: pass no match"              "$URL/phase3-pass"                     200
+check "Phase 4: deny on body content"       "$URL/phase4"                          403
+check "Phase 4: pass no match"              "$URL/phase4-pass"                     200
+echo ""
+
 echo "--- Config merging tests ---"
 check "Engine off: SQLi passes"       "$URL/merge-engine-off/?id=1%20OR%201=1"    200
 check "Engine off: normal passes"     "$URL/merge-engine-off/"                    200
