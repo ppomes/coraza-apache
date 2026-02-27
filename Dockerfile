@@ -11,8 +11,8 @@ RUN set -eux; \
         bash \
         make
 
-ARG libcoraza_repo=ppomes/libcoraza
-ARG libcoraza_branch=feat/implement-missing-apis
+ARG libcoraza_repo=corazawaf/libcoraza
+ARG libcoraza_branch=master
 
 RUN set -eux; \
     wget https://github.com/${libcoraza_repo}/tarball/${libcoraza_branch} -O /tmp/master; \
