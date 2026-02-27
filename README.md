@@ -6,10 +6,6 @@ Apache HTTPD module for the Coraza WAF engine, using libcoraza (C bindings).
 
 Same dependency chain as coraza-nginx: coraza (Go) -> libcoraza (C bindings) -> this module.
 
-Requires the same forks until the patches are merged upstream:
-- libcoraza: `ppomes/libcoraza` branch `feat/implement-missing-apis`
-- coraza: `ppomes/coraza` branch `feat/rules-merge` (pulled in by libcoraza's go.mod)
-
 ## Build
 
 Requires libcoraza headers at compile time and the shared library at runtime.
