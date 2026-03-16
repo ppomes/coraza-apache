@@ -10,7 +10,8 @@ jobs:
     name: Build and test (${{ matrix.mpm }} MPM)
     runs-on: ubuntu-22.04
     env:
-      libcoraza_version: v1.1.0
+      # renovate: datasource=github-releases depName=corazawaf/libcoraza
+      LIBCORAZA_VERSION: v1.1.0
     strategy:
       matrix:
         mpm: [event, prefork]
