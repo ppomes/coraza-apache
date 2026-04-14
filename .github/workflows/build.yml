@@ -64,13 +64,13 @@ jobs:
       - name: Run go-ftw tests
         run: |
           cd coraza-connector-tests
-          cat > .ftw.yaml <<EOF
+          cat > .ftw.yaml <<'EOF'
           testoverride:
             input:
               dest_addr: "127.0.0.1"
               port: 8888
           EOF
-          go-ftw run --cloud -d tests/
+          ~/go/bin/go-ftw run --cloud -d tests/
 
       - name: Extract module artifact
         if: matrix.mpm == 'event'
