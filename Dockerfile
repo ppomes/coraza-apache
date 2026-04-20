@@ -71,7 +71,7 @@ RUN set -eux; \
 RUN apt-get update -qq && \
     apt-get install -qq --no-install-recommends curl ca-certificates && \
     mkdir -p /etc/coraza/crs && \
-    CRS_VERSION="4.23.0" && \
+    CRS_VERSION="4.25.0" && \
     curl -fSL "https://github.com/coreruleset/coreruleset/archive/refs/tags/v${CRS_VERSION}.tar.gz" \
       -o /tmp/crs.tar.gz && \
     tar -xzf /tmp/crs.tar.gz -C /tmp && \
